@@ -8,7 +8,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, getDocs, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, getDocs, arrayUnion, arrayRemove, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global variables for Firebase
         const firebaseConfig = {
@@ -395,7 +395,6 @@
                 answers: {},
                 winner: null
             });
-            console.log("playing")
         });
 
         const createOnlineRoom = async () => {
@@ -435,7 +434,7 @@
                     return;
                 }
                 const roomData = roomDocSnap.data();
-                if (Object.keys(roomData.players).length >= 4) {
+                if (roomData.players.length >= 4) {
                     showMessageBox('このルームは満員です。', true);
                     return;
                 }
@@ -469,13 +468,15 @@
                 const querySnapshot = await getDocs(q);
                 let foundRoom = false;
 
-                querySnapshot.forEach(doc => {
+                // Find a room that isn't full
+                for (const doc of querySnapshot.docs) {
                     const roomData = doc.data();
-                    if (Object.keys(roomData.players).length < 4) {
+                    if (roomData.players.length < 4) {
                         joinOnlineRoom(doc.id);
                         foundRoom = true;
+                        break;
                     }
-                });
+                }
 
                 if (!foundRoom) {
                     // No room found, create a new one
@@ -620,9 +621,10 @@
             playersResultHtml += '</ul>';
             resultDetails.innerHTML += playersResultHtml;
 
-            // Remove player from the room
+            // --- FIX: Remove player by filtering array and updating ---
+            const updatedPlayers = roomData.players.filter(p => p.userId !== userId);
             await updateDoc(roomDocRef, {
-                players: arrayRemove({ userId: userId, userName: userName, rating: ratings[gameDifficulty] })
+                players: updatedPlayers
             });
 
             // If the room is empty, delete it
@@ -696,7 +698,7 @@
             const modalText = document.getElementById('message-text');
             modalText.textContent = message;
             modalText.style.color = isError ? 'red' : 'green';
-            modal.style.display = 'block';
+            modal.style.display = 'flex';
         };
 
         const closeModalBtn = document.getElementById('close-modal');
