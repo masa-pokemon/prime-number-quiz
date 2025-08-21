@@ -1,530 +1,811 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>素因数分解早押し（Firestore）</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN",sans-serif;margin:0;padding:0;background:#f7f7fb;color:#111}
-  header{padding:12px;background:#2b2f6b;color:#fff}
-  main{padding:16px;max-width:980px;margin:18px auto}
-  .row{display:flex;gap:12px;flex-wrap:wrap}
-  .card{background:#fff;padding:12px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.06);min-width:240px}
-  button{padding:8px 12px;border-radius:6px;border:0;background:#2b2f6b;color:#fff;cursor:pointer}
-  input,select{padding:8px;border-radius:6px;border:1px solid #ddd}
-  #playersList li{margin-bottom:6px}
-  #buzzer{font-size:20px;padding:14px 18px;background:#c62828}
-  .muted{color:#666;font-size:.9rem}
-  .center{text-align:center}
-  .big{font-size:28px;font-weight:700}
-  .small{font-size:.85rem;color:#555}
-</style>
-</head>
-<body>
-<header>
-  <div style="max-width:980px;margin:0 auto;display:flex;justify-content:space-between;align-items:center">
-    <div>素因数分解早押し（オンライン & オフライン）</div>
-    <div id="uidDisplay" class="small">サインイン中...</div>
-  </div>
-</header>
-<main>
-  <div class="row">
-    <!-- 控えめな左カラム：マッチング -->
-    <div class="card" style="flex:1 1 320px">
-      <h3>マッチング / ルーム</h3>
-      <div class="small muted">匿名で参加します。ニックネームを入力してください。</div>
-      <div style="margin-top:8px">
-        <input id="nameInput" placeholder="表示名 (例: taro)" />
-        <button id="saveNameBtn">保存</button>
-      </div>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>素因数分解早押しゲーム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, getDocs, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-      <hr />
+        // Global variables for Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyCRn3SFElXUWjxQjYp4zeuo_T2cTeuBQGo",
+            authDomain: "masa-chat-sechack365-2024.firebaseapp.com",
+            projectId: "masa-chat-sechack365-2024",
+            storageBucket: "masa-chat-sechack365-2024.firebasestorage.app",
+            messagingSenderId: "1044636784507",
+            appId: "1:1044636784507:web:11e4d87a209d7ca56dcfde",
+            databaseURL: "https://masa-chat-sechack365-2024-default-rtdb.firebaseio.com",
+            measurementId: "G-N8QNKPPR86"
+        };
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        // Use provided app id
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-      <div>
-        <button id="createRoomBtn">ルームを作成</button>
-        <label style="margin-left:8px">最大人数
-          <select id="roomSize">
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4" selected>4</option>
-          </select>
-        </label>
-      </div>
+        let userId = null;
+        let userName = '';
+        let currentNumber = 0;
+        let startTime = null;
+        let timerInterval = null;
+        let isGameRunning = false;
+        let isOnline = false;
+        let isHost = false;
+        let roomId = null;
+        let players = {};
+        let ratings = {};
+        let gameDifficulty = 'easy'; // Default difficulty
 
-      <div style="margin-top:8px">
-        <button id="randomMatchBtn">ランダムマッチ</button>
-      </div>
+        // Get DOM elements
+        const introSection = document.getElementById('intro-section');
+        const gameSection = document.getElementById('game-section');
+        const onlineGameSection = document.getElementById('online-game-section');
+        const userNameInput = document.getElementById('user-name');
+        const startSoloBtn = document.getElementById('start-solo-game');
+        const createRoomBtn = document.getElementById('create-room');
+        const joinRoomSection = document.getElementById('join-room-section');
+        const joinRoomInput = document.getElementById('join-room-id');
+        const joinRoomBtn = document.getElementById('join-room-button');
+        const randomMatchBtn = document.getElementById('random-match');
+        const difficultySelect = document.getElementById('difficulty-select');
+        const numberDisplay = document.getElementById('number-display');
+        const timerDisplay = document.getElementById('timer-display');
+        const scoreDisplay = document.getElementById('score-display');
+        const inputField = document.getElementById('input-field');
+        const messageBox = document.getElementById('message-box');
+        const playersList = document.getElementById('players-list');
+        const roomInfo = document.getElementById('room-info');
+        const startGameBtn = document.getElementById('start-game-btn');
+        const resultSection = document.getElementById('result-section');
+        const resultMessage = document.getElementById('result-message');
+        const resultDetails = document.getElementById('result-details');
+        const backToMenuBtn = document.getElementById('back-to-menu');
+        const currentRatings = document.getElementById('current-ratings');
 
-      <div style="margin-top:12px">
-        <label>自分の名前: <span id="myName">未設定</span></label><br/>
-        <label>レート: <span id="myRating">--</span></label>
-      </div>
-    </div>
+        // Prime numbers up to 1000 for checking factors
+        const primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443, 449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541, 547, 557, 563, 569, 571, 577, 587, 593, 599, 601, 607, 613, 617, 619, 631, 641, 643, 647, 653, 659, 661, 673, 677, 683, 691, 701, 709, 719, 727, 733, 739, 743, 751, 757, 761, 769, 773, 787, 797, 809, 811, 821, 823, 827, 829, 839, 853, 857, 859, 863, 877, 881, 883, 887, 907, 911, 919, 929, 937, 941, 947, 953, 967, 971, 977, 983, 991, 997];
 
-    <!-- 右カラム：ゲーム / 進行 -->
-    <div class="card" style="flex:2 1 520px">
-      <h3>現在のルーム / ゲーム</h3>
-      <div id="roomArea" class="muted">ルームに参加するとここに表示されます。</div>
-
-      <ul id="playersList"></ul>
-
-      <div id="hostControls" style="margin-top:8px;display:none">
-        <button id="startGameBtn">ゲーム開始（ホスト）</button>
-      </div>
-
-      <hr />
-
-      <div id="gameArea" style="display:none">
-        <div class="center">
-          <div id="numberToFactor" class="big">--</div>
-          <div class="small muted">この数の素因数をできるだけ早く入力して下さい（完全な分解）</div>
-        </div>
-
-        <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
-          <button id="buzzer">早押し！</button>
-          <input id="answerInput" placeholder="例: 2×2×3" style="flex:1" />
-          <button id="submitAnswerBtn">提出</button>
-          <div id="timer" class="small muted">00:00</div>
-        </div>
-
-        <div style="margin-top:8px">
-          <div>得点: <span id="scoreBoard">---</span></div>
-          <div id="lastResult" class="small"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 右下：オフライン練習 -->
-    <div class="card" style="flex:1 1 320px">
-      <h3>オフライン（1人プレイ）</h3>
-      <div class="small muted">練習モード。制限時間・問題数を設定して開始。</div>
-      <div style="margin-top:8px">
-        <label>問題数 <input id="practiceCount" type="number" value="10" style="width:70px" /></label><br/>
-        <label>最大値（生成する整数の上限） <input id="practiceMax" type="number" value="1000" style="width:90px" /></label><br/>
-        <button id="startPracticeBtn" style="margin-top:8px">練習開始</button>
-      </div>
-
-      <div id="practiceArea" style="margin-top:12px;display:none">
-        <div class="big" id="practiceNum">--</div>
-        <input id="practiceAns" placeholder="素因数を入力 (例:2*2*3)" />
-        <button id="practiceSubmit">チェック</button>
-        <div id="practiceResult" class="small muted"></div>
-        <div>得点: <span id="practiceScore">0</span></div>
-      </div>
-    </div>
-  </div>
-
-  <hr />
-
-  <div class="card">
-    <h3>メモ / 注意</h3>
-    <ul>
-      <li class="small">ブラウザは最新のChrome/Edge/Firefox/Safari推奨。スマホでも動きます。</li>
-      <li class="small">Firestore にルームとユーザー情報を保存します。プロジェクトの課金設定に注意。</li>
-    </ul>
-  </div>
-</main>
-
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-
-<script>
-/* ============================
-   Firebase 初期化
-   （ユーザー提供の config を使用）
-   ============================ */
-const firebaseConfig = {
-  apiKey: "AIzaSyDlBrmFABOpYPBNAeCFE141ru548lhPYjI",
-  authDomain: "seat-change-optimization.firebaseapp.com",
-  databaseURL: "https://seat-change-optimization-default-rtdb.firebaseio.com",
-  projectId: "seat-change-optimization",
-  storageBucket: "seat-change-optimization.firebasestorage.app",
-  messagingSenderId: "416064751674",
-  appId: "1:416064751674:web:948214f3bf9680062ccd03",
-  measurementId: "G-H60QZSMLD1"
-};
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
-
-/* ============================
-   グローバル変数（クライアント側）
-   ============================ */
-let myUid = null;
-let myName = localStorage.getItem('pf_name') || '';
-let myRating = Number(localStorage.getItem('pf_rating')) || 1200;
-let currentRoomId = null;
-let isHost = false;
-let roomUnsub = null;
-let gameUnsub = null;
-let buzzerLocked = false;
-let localScores = {}; // ui用
-const K = 32; // Elo K-factor
-
-/* ============================
-   Helpers
-   ============================ */
-function randomInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
-function nowTs(){ return Date.now(); }
-function show(el,tf){ el.style.display = tf ? '' : 'none'; }
-function parseFactorsInput(s){
-  // 2*2*3 か 2×2×3 か "2 2 3" などを受け取る -> sorted array of primes
-  if(!s) return null;
-  s = s.replace(/×/g,'*').replace(/×/g,'*').replace(/x/g,'*');
-  s = s.replace(/\s+/g,'');
-  // allow commas
-  s = s.replace(/,/g,'*');
-  const parts = s.split('*').filter(Boolean);
-  if(parts.length===0) return null;
-  const nums = parts.map(p=>Number(p)).filter(n=>Number.isInteger(n) && n>1);
-  if(nums.length!==parts.length) return null;
-  nums.sort((a,b)=>a-b);
-  return nums;
-}
-function factorize(n){
-  // 素因数分解を返す（配列）
-  const res=[];
-  let x=n;
-  for(let p=2;p*p<=x;p++){
-    while(x%p===0){ res.push(p); x/=p; }
-  }
-  if(x>1) res.push(x);
-  return res;
-}
-function factorsEqual(a,b){
-  if(!a||!b) return false;
-  if(a.length!==b.length) return false;
-  for(let i=0;i<a.length;i++) if(a[i]!==b[i]) return false;
-  return true;
-}
-function updateMyUI(){
-  document.getElementById('myName').innerText = myName||'（未設定）';
-  document.getElementById('myRating').innerText = myRating;
-  document.getElementById('uidDisplay').innerText = 'ID: ' + (myUid||'...');
-}
-function genNumberForRoom(roomDoc){
-  // roomDoc の難易度に合わせて生成（簡単）
-  // 2〜10個の素因数でランダムな数を作る or 単純にランダム整数
-  const max = roomDoc && roomDoc.maxValue ? roomDoc.maxValue : 2000;
-  const n = randomInt(2, max);
-  return n;
-}
-
-/* ============================
-   Auth：匿名ログイン
-   ============================ */
-auth.onAuthStateChanged(async user=>{
-  if(user){
-    myUid = user.uid;
-    // ユーザードキュメント取得 or 作成
-    const uref = db.collection('users').doc(myUid);
-    const snap = await uref.get();
-    if(!snap.exists){
-      await uref.set({name: myName || ('Player'+myUid.slice(-4)), rating: myRating});
-    } else {
-      const d = snap.data();
-      if(d.name) myName = d.name;
-      if(d.rating) myRating = d.rating;
-    }
-    updateMyUI();
-  } else {
-    try{ await auth.signInAnonymously(); }catch(e){ alert('Auth error: '+e.message); }
-  }
-});
-
-/* ============================
-   UI イベント
-   ============================ */
-document.getElementById('saveNameBtn').onclick = async ()=>{
-  const v = document.getElementById('nameInput').value.trim();
-  if(!v){ alert('名前を入力してください'); return; }
-  myName = v;
-  localStorage.setItem('pf_name', myName);
-  updateMyUI();
-  if(myUid){
-    await db.collection('users').doc(myUid).set({name: myName, rating: myRating}, {merge:true});
-  }
-};
-
-document.getElementById('createRoomBtn').onclick = async ()=>{
-  if(!myUid){ alert('認証中です。少し待ってください。'); return; }
-  const cap = Number(document.getElementById('roomSize').value);
-  const roomRef = await db.collection('rooms').add({
-    host: myUid,
-    hostName: myName,
-    capacity: cap,
-    players: [{uid: myUid, name: myName, rating: myRating}],
-    state: 'waiting',
-    createdAt: nowTs(),
-    currentNumber: genNumberForRoom({maxValue:2000}),
-    scores: {[myUid]:0}
-  });
-  joinRoom(roomRef.id);
-};
-
-document.getElementById('randomMatchBtn').onclick = async ()=>{
-  // 空いてるwaitingルームを探して参加、無ければ新規作成
-  const cap = Number(document.getElementById('roomSize').value);
-  const q = await db.collection('rooms')
-    .where('state','==','waiting')
-    .where('capacity','==',cap)
-    .orderBy('createdAt')
-    .limit(5)
-    .get();
-  let joined=false;
-  for(const doc of q.docs){
-    const r = doc.data();
-    if((r.players||[]).length < r.capacity){
-      // try to append atomically with transaction
-      try{
-        await db.runTransaction(async tx=>{
-          const snap = await tx.get(doc.ref);
-          const data = snap.data();
-          if((data.players||[]).find(p=>p.uid===myUid)) { joined=true; return; }
-          if((data.players||[]).length >= data.capacity) throw 'full';
-          const newPlayers = (data.players||[]).concat([{uid:myUid, name:myName, rating:myRating}]);
-          const newScores = Object.assign({}, data.scores || {});
-          newScores[myUid] = 0;
-          tx.update(doc.ref, {players: newPlayers, scores: newScores});
-          joined=true;
+        // --- Firebase Setup & Authentication ---
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                await fetchUserRatings();
+                showSection('intro');
+            } else {
+                await signInAnonymously(auth);
+            }
         });
-        if(joined){ joinRoom(doc.id); return; }
-      }catch(e){ /* try next */ }
-    }
-  }
-  // 参加できなければ作る
-  const roomRef = await db.collection('rooms').add({
-    host: myUid,
-    hostName: myName,
-    capacity: cap,
-    players: [{uid: myUid, name: myName, rating: myRating}],
-    state: 'waiting',
-    createdAt: nowTs(),
-    currentNumber: genNumberForRoom({maxValue:2000}),
-    scores: {[myUid]:0}
-  });
-  joinRoom(roomRef.id);
-};
 
-document.getElementById('startGameBtn').onclick = async ()=>{
-  if(!currentRoomId) return;
-  const rref = db.collection('rooms').doc(currentRoomId);
-  await rref.update({state:'playing', startedAt: nowTs()});
-};
+        const fetchUserRatings = async () => {
+            const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
+            const userDocSnap = await getDoc(userDocRef);
+            if (userDocSnap.exists()) {
+                ratings = userDocSnap.data().ratings || { easy: 1500, normal: 1500, hard: 1500 };
+            } else {
+                ratings = { easy: 1500, normal: 1500, hard: 1500 };
+                await setDoc(userDocRef, { ratings: ratings });
+            }
+            updateRatingsDisplay();
+        };
 
-document.getElementById('buzzer').onclick = ()=>{
-  if(!currentRoomId) return;
-  if(buzzerLocked) return;
-  buzzerLocked = true;
-  // publish buzzer claim to room
-  db.collection('rooms').doc(currentRoomId).update({lastBuzzer: {uid: myUid, name: myName, at: nowTs()}});
-  document.getElementById('lastResult').innerText = '早押ししました。回答欄に入力して提出してください。';
-};
+        const updateRatingsDisplay = () => {
+            if (currentRatings) {
+                currentRatings.innerHTML = `
+                    <div class="p-2 bg-gray-700 rounded-lg shadow-inner">
+                        <h3 class="text-xl font-bold mb-2">現在のレート</h3>
+                        <p>簡単: <span class="text-yellow-400 font-bold">${ratings.easy}</span></p>
+                        <p>普通: <span class="text-yellow-400 font-bold">${ratings.normal}</span></p>
+                        <p>難しい: <span class="text-yellow-400 font-bold">${ratings.hard}</span></p>
+                    </div>
+                `;
+            }
+        };
 
-document.getElementById('submitAnswerBtn').onclick = async ()=>{
-  if(!currentRoomId) return;
-  // only accept if lastBuzzer.uid === myUid (or host allow)
-  const roomDoc = await db.collection('rooms').doc(currentRoomId).get();
-  const r = roomDoc.data();
-  const last = r.lastBuzzer || {};
-  if(last.uid !== myUid){
-    alert('早押ししていないか、既に別の人の回答が受け付けられています。');
-    return;
-  }
-  const answerStr = document.getElementById('answerInput').value.trim();
-  const parsed = parseFactorsInput(answerStr);
-  if(!parsed){ alert('回答が読み取れません。例: 2*2*3'); buzzerLocked=false; return; }
-  const correct = factorize(r.currentNumber);
-  if(factorsEqual(parsed, correct)){
-    // correct: add score and publish winner
-    const rref = db.collection('rooms').doc(currentRoomId);
-    await db.runTransaction(async tx=>{
-      const snap = await tx.get(rref);
-      const data = snap.data();
-      const scores = Object.assign({}, data.scores || {});
-      scores[myUid] = (scores[myUid] || 0) + 1;
-      // next number
-      const nextNum = genNumberForRoom(data);
-      tx.update(rref, {scores, lastAnswer: {uid: myUid, name: myName, at: nowTs(), value: answerStr, correct:true}, currentNumber: nextNum});
-    });
-    document.getElementById('lastResult').innerText = '正解！ +1点';
-    document.getElementById('answerInput').value = '';
-  } else {
-    // incorrect: penalty or reveal
-    const rref = db.collection('rooms').doc(currentRoomId);
-    await rref.update({lastAnswer: {uid: myUid, name: myName, at: nowTs(), value: answerStr, correct:false}});
-    document.getElementById('lastResult').innerText = '不正解。次の人へ。';
-  }
-  buzzerLocked = false;
-};
+        // --- UI State Management ---
+        const showSection = (sectionName) => {
+            introSection.style.display = 'none';
+            gameSection.style.display = 'none';
+            onlineGameSection.style.display = 'none';
+            resultSection.style.display = 'none';
+            
+            switch (sectionName) {
+                case 'intro':
+                    introSection.style.display = 'block';
+                    break;
+                case 'solo':
+                    gameSection.style.display = 'block';
+                    break;
+                case 'online':
+                    onlineGameSection.style.display = 'block';
+                    break;
+                case 'result':
+                    resultSection.style.display = 'block';
+                    break;
+            }
+        };
 
-document.getElementById('startPracticeBtn').onclick = ()=>{
-  const cnt = Number(document.getElementById('practiceCount').value) || 10;
-  const maxv = Number(document.getElementById('practiceMax').value) || 1000;
-  startPractice(cnt, maxv);
-};
-document.getElementById('practiceSubmit').onclick = ()=>{
-  const ans = document.getElementById('practiceAns').value;
-  checkPractice(ans);
-};
+        // --- Game Logic ---
+        const primeFactorize = (n) => {
+            let factors = {};
+            let tempN = n;
+            for (let i = 0; i < primes.length; i++) {
+                const p = primes[i];
+                if (p * p > tempN) break;
+                while (tempN % p === 0) {
+                    factors[p] = (factors[p] || 0) + 1;
+                    tempN /= p;
+                }
+            }
+            if (tempN > 1) {
+                factors[tempN] = (factors[tempN] || 0) + 1;
+            }
+            return factors;
+        };
 
-/* ============================
-   ルーム参加 / 監視
-   ============================ */
-async function joinRoom(roomId){
-  leaveRoom();
-  currentRoomId = roomId;
-  document.getElementById('roomArea').innerText = 'ルーム: ' + roomId;
-  // サブスクライブ
-  const rref = db.collection('rooms').doc(roomId);
-  roomUnsub = rref.onSnapshot(async snap=>{
-    if(!snap.exists){ alert('ルームが消されました。'); leaveRoom(); return; }
-    const data = snap.data();
-    renderRoom(data, roomId);
-  });
-}
-function leaveRoom(){
-  if(roomUnsub){ roomUnsub(); roomUnsub=null; }
-  currentRoomId = null;
-  isHost = false;
-  document.getElementById('roomArea').innerText = 'ルームに参加するとここに表示されます。';
-  document.getElementById('playersList').innerHTML = '';
-  if(gameUnsub){ gameUnsub(); gameUnsub=null; }
-  show(document.getElementById('gameArea'), false);
-  document.getElementById('hostControls').style.display='none';
-}
-function renderRoom(data, roomId){
-  // players list
-  const pl = data.players || [];
-  const ul = document.getElementById('playersList');
-  ul.innerHTML = '';
-  for(const p of pl){
-    const li = document.createElement('li');
-    li.innerHTML = `${p.name} <span class="small muted">(${p.rating||1200})</span>`;
-    ul.appendChild(li);
-  }
-  // host?
-  isHost = (data.host === myUid);
-  document.getElementById('hostControls').style.display = isHost && data.state === 'waiting' ? '' : 'none';
+        const generateNumber = (difficulty) => {
+            let min, max;
+            switch (difficulty) {
+                case 'easy':
+                    min = 10; max = 100;
+                    break;
+                case 'normal':
+                    min = 100; max = 1000;
+                    break;
+                case 'hard':
+                    min = 1000; max = 10000;
+                    break;
+                default:
+                    min = 10; max = 100;
+            }
+            let num;
+            do {
+                num = Math.floor(Math.random() * (max - min + 1)) + min;
+            } while (primeFactorize(num).length === 1); // Avoid prime numbers for factorization
+            return num;
+        };
 
-  // show game area if playing
-  if(data.state === 'playing'){
-    show(document.getElementById('gameArea'), true);
-    document.getElementById('numberToFactor').innerText = data.currentNumber || '--';
-    // scoreboard
-    const scores = data.scores || {};
-    const sb = Object.entries(scores).map(([uid,sc])=>{
-      const p = (data.players||[]).find(x=>x.uid===uid);
-      return (p?p.name:uid.slice(0,6)) + ':' + sc;
-    }).join(' / ');
-    document.getElementById('scoreBoard').innerText = sb;
-    // last answer display
-    const last = data.lastAnswer;
-    if(last){
-      document.getElementById('lastResult').innerText = `${last.name} の回答: ${last.value} => ${last.correct ? '正解' : '不正解'}`;
-    }
-    // if game ended? (not implemented advanced)
-    // subscribe to game end events for Elo update: when someone leaves or host ends, or manual trigger
-    // We'll listen for "ended" field
-    if(data.ended && !data.eloUpdated){
-      // finalize ratings
-      finalizeRatings(roomId, data);
-    }
-  } else {
-    show(document.getElementById('gameArea'), false);
-  }
-}
+        const checkAnswer = (input, correctFactors) => {
+            const parsedInput = input.split(/[\*\s\^]+/);
+            let userFactors = {};
+            for (let i = 0; i < parsedInput.length; i++) {
+                const part = parsedInput[i].trim();
+                if (!part) continue;
+                if (part.includes('^')) {
+                    const [base, exponent] = part.split('^').map(Number);
+                    if (isNaN(base) || isNaN(exponent)) return false;
+                    userFactors[base] = (userFactors[base] || 0) + exponent;
+                } else {
+                    const base = Number(part);
+                    if (isNaN(base)) return false;
+                    userFactors[base] = (userFactors[base] || 0) + 1;
+                }
+            }
 
-/* ============================
-   レーティング更新（簡易 Elo, マルチプレイヤー対応）
-   - winner: expected score vs each opponent, actual =1
-   - losers: actual =0 vs each opponent
-   ============================ */
-async function finalizeRatings(roomId, data){
-  if(!data || !data.players) return;
-  const scores = data.scores || {};
-  // determine winner by highest score
-  let bestUid = null, bestScore = -Infinity;
-  for(const p of data.players){
-    const s = scores[p.uid] || 0;
-    if(s > bestScore){ bestScore = s; bestUid = p.uid; }
-  }
-  // compute new ratings
-  const players = data.players.map(p=>({uid:p.uid,name:p.name,rating:p.rating||1200,score:scores[p.uid]||0}));
-  const updates = {}; // uid -> newRating
-  for(const A of players){
-    let RA = A.rating;
-    let SA = (A.uid === bestUid) ? 1 : 0;
-    // expected vs each opponent
-    let EA=0;
-    for(const B of players){
-      if(B.uid===A.uid) continue;
-      EA += 1/(1+Math.pow(10, (B.rating-RA)/400));
-    }
-    EA = EA / (players.length - 1); // normalize
-    const newR = Math.round(RA + K*(SA - EA));
-    updates[A.uid] = newR;
-  }
-  // write back to user docs and mark room eloUpdated
-  const batch = db.batch();
-  for(const uid in updates){
-    const ref = db.collection('users').doc(uid);
-    batch.set(ref, {rating: updates[uid]}, {merge:true});
-  }
-  const roomRef = db.collection('rooms').doc(roomId);
-  batch.update(roomRef, {eloUpdated:true, finalRatings: updates});
-  await batch.commit();
-}
+            const correctKeys = Object.keys(correctFactors);
+            const userKeys = Object.keys(userFactors);
 
-/* ============================
-   練習モード（オフライン）
-   ============================ */
-let practiceState = null;
-function startPractice(count, maxv){
-  practiceState = {count, maxv, cur:0, score:0, curNumber:null};
-  document.getElementById('practiceScore').innerText = '0';
-  show(document.getElementById('practiceArea'), true);
-  nextPractice();
-}
-function nextPractice(){
-  if(!practiceState) return;
-  if(practiceState.cur >= practiceState.count){
-    document.getElementById('practiceResult').innerText = '終了！ 得点: ' + practiceState.score;
-    practiceState = null;
-    return;
-  }
-  practiceState.cur++;
-  const n = randomInt(2, practiceState.maxv);
-  practiceState.curNumber = n;
-  document.getElementById('practiceNum').innerText = n;
-  document.getElementById('practiceAns').value = '';
-  document.getElementById('practiceResult').innerText = `問題 ${practiceState.cur}/${practiceState.count}`;
-}
-function checkPractice(ans){
-  if(!practiceState) return;
-  const parsed = parseFactorsInput(ans);
-  if(!parsed){ document.getElementById('practiceResult').innerText = '入力が不正です。形式: 2*2*3'; return; }
-  const correct = factorize(practiceState.curNumber);
-  if(factorsEqual(parsed, correct)){
-    practiceState.score++;
-    document.getElementById('practiceResult').innerText = '正解！';
-  } else {
-    document.getElementById('practiceResult').innerText = '不正解。正解は: ' + correct.join('*');
-  }
-  document.getElementById('practiceScore').innerText = String(practiceState.score);
-  setTimeout(nextPractice, 800);
-}
+            if (correctKeys.length !== userKeys.length) return false;
 
-/* ============================
-   初期UI更新
-   ============================ */
-document.getElementById('answerInput').addEventListener('keydown', e=>{
-  if(e.key==='Enter') document.getElementById('submitAnswerBtn').click();
-});
-updateMyUI();
+            for (const key of correctKeys) {
+                if (correctFactors[key] !== userFactors[key]) {
+                    return false;
+                }
+            }
 
-</script>
+            return true;
+        };
+
+        const formatFactors = (factors) => {
+            return Object.entries(factors).map(([base, exp]) => {
+                if (exp === 1) return base;
+                return `${base}^${exp}`;
+            }).join(' * ');
+        };
+
+        const showMessage = (message, isError = false) => {
+            messageBox.textContent = message;
+            messageBox.style.color = isError ? 'red' : 'green';
+        };
+
+        const startGame = (mode) => {
+            isOnline = (mode === 'online');
+            isGameRunning = true;
+            inputField.value = '';
+            showMessage('');
+            resultSection.style.display = 'none';
+
+            if (!isOnline) {
+                showSection('solo');
+                startTimer();
+                currentNumber = generateNumber(difficultySelect.value);
+                numberDisplay.textContent = currentNumber;
+                inputField.focus();
+            } else {
+                // Online game logic is handled by Firestore listener
+                numberDisplay.textContent = 'ゲーム開始を待っています...';
+            }
+        };
+
+        const endGame = (isWin) => {
+            isGameRunning = false;
+            clearInterval(timerInterval);
+            let timeTaken = 0;
+            if (startTime) {
+                timeTaken = (new Date() - startTime) / 1000;
+            }
+
+            const correctFactors = primeFactorize(currentNumber);
+            const formattedFactors = formatFactors(correctFactors);
+
+            showSection('result');
+            resultDetails.innerHTML = `
+                <p>問題: ${currentNumber}</p>
+                <p>正解: ${formattedFactors}</p>
+                <p>経過時間: ${timeTaken.toFixed(2)}秒</p>
+            `;
+
+            if (!isOnline) {
+                if (isWin) {
+                    resultMessage.textContent = '正解です！';
+                    resultMessage.style.color = 'green';
+                } else {
+                    resultMessage.textContent = '不正解です...';
+                    resultMessage.style.color = 'red';
+                }
+                updateSoloRating(isWin, timeTaken);
+            }
+        };
+
+        const updateSoloRating = (isWin, timeTaken) => {
+            const difficulty = difficultySelect.value;
+            let currentRating = ratings[difficulty];
+            let newRating;
+            const kFactor = 40; // High K-factor for rapid change
+            const timeFactor = 10; // Time penalty/bonus factor
+
+            if (isWin) {
+                const baseChange = kFactor;
+                const bonus = Math.max(0, timeFactor - timeTaken);
+                newRating = Math.round(currentRating + baseChange + bonus);
+                showMessageBox(`レートが ${newRating - currentRating} 上がりました！`);
+            } else {
+                const baseChange = kFactor;
+                newRating = Math.round(currentRating - baseChange);
+                showMessageBox(`レートが ${currentRating - newRating} 下がりました...`);
+            }
+            ratings[difficulty] = newRating;
+            updateFirestoreRating();
+            updateRatingsDisplay();
+        };
+
+        const updateFirestoreRating = async () => {
+            const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
+            try {
+                await updateDoc(userDocRef, { ratings: ratings });
+            } catch (e) {
+                console.error("Error updating rating: ", e);
+            }
+        };
+
+        // --- Timer ---
+        const startTimer = () => {
+            startTime = new Date();
+            timerDisplay.textContent = '0.00';
+            timerInterval = setInterval(() => {
+                const elapsedTime = (new Date() - startTime) / 1000;
+                timerDisplay.textContent = elapsedTime.toFixed(2);
+            }, 10);
+        };
+
+        // --- Event Listeners ---
+        startSoloBtn.addEventListener('click', () => {
+            userName = userNameInput.value.trim();
+            if (userName === '') {
+                showMessageBox('ユーザー名を入力してください', true);
+                return;
+            }
+            difficultySelect.disabled = false;
+            gameDifficulty = difficultySelect.value;
+            startGame('solo');
+        });
+
+        inputField.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && isGameRunning) {
+                e.preventDefault();
+                const correctFactors = primeFactorize(currentNumber);
+                const isCorrect = checkAnswer(inputField.value.trim(), correctFactors);
+                endGame(isCorrect);
+            }
+        });
+
+        backToMenuBtn.addEventListener('click', () => {
+            showSection('intro');
+            resetGame();
+        });
+
+        // --- Online Game Logic ---
+        createRoomBtn.addEventListener('click', async () => {
+            userName = userNameInput.value.trim();
+            if (userName === '') {
+                showMessageBox('ユーザー名を入力してください', true);
+                return;
+            }
+            if (isOnline) {
+                showMessageBox('すでにオンラインゲームに参加しています。', true);
+                return;
+            }
+            difficultySelect.disabled = true;
+            isHost = true;
+            gameDifficulty = difficultySelect.value;
+            await createOnlineRoom();
+        });
+
+        joinRoomBtn.addEventListener('click', async () => {
+            userName = userNameInput.value.trim();
+            const roomCode = joinRoomInput.value.trim();
+            if (userName === '') {
+                showMessageBox('ユーザー名を入力してください', true);
+                return;
+            }
+            if (roomCode === '') {
+                showMessageBox('ルームIDを入力してください', true);
+                return;
+            }
+            if (isOnline) {
+                showMessageBox('すでにオンラインゲームに参加しています。', true);
+                return;
+            }
+            difficultySelect.disabled = true;
+            await joinOnlineRoom(roomCode);
+        });
+
+        randomMatchBtn.addEventListener('click', async () => {
+            userName = userNameInput.value.trim();
+            if (userName === '') {
+                showMessageBox('ユーザー名を入力してください', true);
+                return;
+            }
+            if (isOnline) {
+                showMessageBox('すでにオンラインゲームに参加しています。', true);
+                return;
+            }
+            difficultySelect.disabled = true;
+            await findRandomMatch();
+        });
+
+        startGameBtn.addEventListener('click', async () => {
+            if (!isHost) {
+                showMessageBox('ホストのみがゲームを開始できます。', true);
+                return;
+            }
+            if (Object.keys(players).length < 2) {
+                showMessageBox('2人以上プレイヤーが必要です。', true);
+                return;
+            }
+            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+            const num = generateNumber(gameDifficulty);
+            await updateDoc(roomDocRef, {
+                status: 'playing',
+                currentNumber: num,
+                answers: {},
+                winner: null
+            });
+            console.log("playing")
+        });
+
+        const createOnlineRoom = async () => {
+            try {
+                const roomsColRef = collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
+                const newRoomDoc = await addDoc(roomsColRef, {
+                    host: userId,
+                    players: [{ userId: userId, userName: userName, rating: ratings[gameDifficulty] }],
+                    status: 'waiting',
+                    difficulty: gameDifficulty,
+                    createdAt: new Date(),
+                    currentNumber: null,
+                    answers: {},
+                    winner: null
+                });
+                roomId = newRoomDoc.id;
+                isOnline = true;
+                await listenToRoomUpdates();
+                showSection('online');
+                showMessageBox(`ルームID: ${roomId}`);
+                roomInfo.textContent = `ルームID: ${roomId} (ホスト)`;
+                startGameBtn.style.display = 'block';
+            } catch (e) {
+                console.error("Error creating room: ", e);
+                showMessageBox('ルームの作成に失敗しました。', true);
+                isOnline = false;
+                isHost = false;
+            }
+        };
+
+        const joinOnlineRoom = async (roomCode) => {
+            try {
+                const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomCode);
+                const roomDocSnap = await getDoc(roomDocRef);
+                if (!roomDocSnap.exists()) {
+                    showMessageBox('指定されたルームが見つかりません。', true);
+                    return;
+                }
+                const roomData = roomDocSnap.data();
+                if (Object.keys(roomData.players).length >= 4) {
+                    showMessageBox('このルームは満員です。', true);
+                    return;
+                }
+                if (roomData.status !== 'waiting') {
+                    showMessageBox('このルームはすでにゲーム中です。', true);
+                    return;
+                }
+                roomId = roomCode;
+                isOnline = true;
+                gameDifficulty = roomData.difficulty;
+
+                await updateDoc(roomDocRef, {
+                    players: arrayUnion({ userId: userId, userName: userName, rating: ratings[gameDifficulty] })
+                });
+
+                await listenToRoomUpdates();
+                showSection('online');
+                roomInfo.textContent = `ルームID: ${roomId}`;
+                startGameBtn.style.display = 'none';
+            } catch (e) {
+                console.error("Error joining room: ", e);
+                showMessageBox('ルームへの参加に失敗しました。', true);
+                isOnline = false;
+            }
+        };
+
+        const findRandomMatch = async () => {
+            try {
+                const roomsColRef = collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
+                const q = query(roomsColRef, where('status', '==', 'waiting'));
+                const querySnapshot = await getDocs(q);
+                let foundRoom = false;
+
+                querySnapshot.forEach(doc => {
+                    const roomData = doc.data();
+                    if (Object.keys(roomData.players).length < 4) {
+                        joinOnlineRoom(doc.id);
+                        foundRoom = true;
+                    }
+                });
+
+                if (!foundRoom) {
+                    // No room found, create a new one
+                    isHost = true;
+                    createOnlineRoom();
+                }
+            } catch (e) {
+                console.error("Error finding random match: ", e);
+                showMessageBox('ランダムマッチングに失敗しました。', true);
+            }
+        };
+
+        const listenToRoomUpdates = async () => {
+            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+            onSnapshot(roomDocRef, (docSnap) => {
+                if (!docSnap.exists()) {
+                    showMessageBox('ルームが削除されました。メニューに戻ります。', true);
+                    resetGame();
+                    return;
+                }
+                const roomData = docSnap.data();
+                players = roomData.players.reduce((acc, p) => {
+                    acc[p.userId] = p;
+                    return acc;
+                }, {});
+                
+                updatePlayersList();
+
+                if (roomData.status === 'playing') {
+                    if (!isGameRunning) {
+                        currentNumber = roomData.currentNumber;
+                        startGame('online');
+                    }
+                    numberDisplay.textContent = currentNumber;
+                    inputField.focus();
+                }
+
+                if (roomData.winner) {
+                    endOnlineGame(roomData.winner);
+                }
+            });
+        };
+
+        const updatePlayersList = () => {
+            playersList.innerHTML = '';
+            Object.values(players).forEach(p => {
+                const playerEl = document.createElement('li');
+                playerEl.textContent = `${p.userName} (レート: ${p.rating})`;
+                if (p.userId === userId) {
+                    playerEl.classList.add('font-bold', 'text-yellow-300');
+                }
+                playersList.appendChild(playerEl);
+            });
+        };
+
+        const submitOnlineAnswer = async () => {
+            if (!isOnline || !isGameRunning) return;
+            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+            const input = inputField.value.trim();
+            const correctFactors = primeFactorize(currentNumber);
+            const isCorrect = checkAnswer(input, correctFactors);
+
+            try {
+                await updateDoc(roomDocRef, {
+                    [`answers.${userId}`]: {
+                        userName: userName,
+                        answer: input,
+                        isCorrect: isCorrect,
+                        time: new Date()
+                    }
+                });
+
+                if (isCorrect) {
+                    await updateDoc(roomDocRef, {
+                        winner: userId
+                    });
+                }
+            } catch (e) {
+                console.error("Error submitting answer: ", e);
+            }
+        };
+        inputField.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && isGameRunning) {
+                e.preventDefault();
+                if (isOnline) {
+                    submitOnlineAnswer();
+                } else {
+                    const correctFactors = primeFactorize(currentNumber);
+                    const isCorrect = checkAnswer(inputField.value.trim(), correctFactors);
+                    endGame(isCorrect);
+                }
+            }
+        });
+
+        const endOnlineGame = async (winnerId) => {
+            isGameRunning = false;
+            clearInterval(timerInterval);
+            const correctFactors = primeFactorize(currentNumber);
+            const formattedFactors = formatFactors(correctFactors);
+            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+            const roomDocSnap = await getDoc(roomDocRef);
+            const roomData = roomDocSnap.data();
+            const answers = roomData.answers;
+
+            const winner = players[winnerId];
+
+            showSection('result');
+            resultMessage.textContent = `${winner.userName}の勝利！`;
+            resultMessage.style.color = 'green';
+            resultDetails.innerHTML = `
+                <p>問題: ${currentNumber}</p>
+                <p>正解: ${formattedFactors}</p>
+            `;
+            
+            // Calculate and update ratings
+            const playerRatings = Object.entries(players).reduce((acc, [id, data]) => {
+                acc[id] = data.rating;
+                return acc;
+            }, {});
+
+            const newRatings = calculateElo(playerRatings, winnerId);
+            for (const pId in newRatings) {
+                if (pId === userId) {
+                    ratings[gameDifficulty] = newRatings[pId];
+                    updateFirestoreRating();
+                }
+            }
+            updateRatingsDisplay();
+
+            // Display all players' results
+            let playersResultHtml = '<h3 class="text-xl font-bold mt-4">プレイヤーの結果</h3><ul class="list-disc list-inside mt-2">';
+            Object.values(players).forEach(p => {
+                const answerInfo = answers[p.userId] || { isCorrect: false, answer: '回答なし' };
+                playersResultHtml += `
+                    <li>
+                        <strong>${p.userName}:</strong>
+                        <span>${answerInfo.isCorrect ? '正解' : '不正解'}</span>,
+                        <span>回答: ${answerInfo.answer}</span>
+                    </li>
+                `;
+            });
+            playersResultHtml += '</ul>';
+            resultDetails.innerHTML += playersResultHtml;
+
+            // Remove player from the room
+            await updateDoc(roomDocRef, {
+                players: arrayRemove({ userId: userId, userName: userName, rating: ratings[gameDifficulty] })
+            });
+
+            // If the room is empty, delete it
+            const updatedRoomDocSnap = await getDoc(roomDocRef);
+            if (updatedRoomDocSnap.exists() && updatedRoomDocSnap.data().players.length === 0) {
+                // Delete room
+                await deleteDoc(roomDocRef);
+            }
+
+            resetGame();
+        };
+
+        const calculateElo = (currentRatings, winnerId) => {
+            const K = 32;
+            const newRatings = { ...currentRatings };
+            const players = Object.keys(currentRatings);
+
+            for (const playerA of players) {
+                for (const playerB of players) {
+                    if (playerA === playerB) continue;
+
+                    const ratingA = currentRatings[playerA];
+                    const ratingB = currentRatings[playerB];
+
+                    const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+                    const expectedB = 1 / (1 + Math.pow(10, (ratingA - ratingB) / 400));
+
+                    let scoreA = 0;
+                    if (playerA === winnerId) {
+                        scoreA = 1;
+                    }
+
+                    let scoreB = 0;
+                    if (playerB === winnerId) {
+                        scoreB = 1;
+                    }
+
+                    if (scoreA !== scoreB) { // Only update if there's a winner
+                        newRatings[playerA] += K * (scoreA - expectedA);
+                        newRatings[playerB] += K * (scoreB - expectedB);
+                    }
+                }
+            }
+            
+            for (const player of players) {
+                newRatings[player] = Math.round(newRatings[player]);
+            }
+
+            return newRatings;
+        };
+        
+        const resetGame = () => {
+            isOnline = false;
+            isHost = false;
+            roomId = null;
+            players = {};
+            currentNumber = 0;
+            startTime = null;
+            clearInterval(timerInterval);
+            isGameRunning = false;
+            inputField.value = '';
+            showMessage('');
+            roomInfo.textContent = '';
+            startGameBtn.style.display = 'none';
+            playersList.innerHTML = '';
+            difficultySelect.disabled = false;
+        };
+
+        const showMessageBox = (message, isError = false) => {
+            const modal = document.getElementById('message-modal');
+            const modalText = document.getElementById('message-text');
+            modalText.textContent = message;
+            modalText.style.color = isError ? 'red' : 'green';
+            modal.style.display = 'block';
+        };
+
+        const closeModalBtn = document.getElementById('close-modal');
+        if (closeModalBtn) {
+            closeModalBtn.addEventListener('click', () => {
+                document.getElementById('message-modal').style.display = 'none';
+            });
+        }
+
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex items-center justify-center p-4">
+
+    <!-- Main Container -->
+    <div class="container bg-gray-800 p-8 rounded-2xl shadow-2xl space-y-8">
+        <h1 class="text-4xl font-extrabold text-center text-yellow-300">素因数分解早押しゲーム</h1>
+        
+        <!-- Intro Section -->
+        <section id="intro-section" class="space-y-6">
+            <div class="flex flex-col items-center space-y-4">
+                <input id="user-name" type="text" placeholder="ユーザー名を入力してください" class="w-full max-w-sm px-4 py-2 rounded-xl bg-gray-700 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                <select id="difficulty-select" class="w-full max-w-sm px-4 py-2 rounded-xl bg-gray-700 text-gray-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    <option value="easy">簡単 (10-100)</option>
+                    <option value="normal">普通 (100-1000)</option>
+                    <option value="hard">難しい (1000-10000)</option>
+                </select>
+            </div>
+            
+            <div id="current-ratings" class="text-center"></div>
+
+            <div class="space-y-4">
+                <h2 class="text-2xl font-bold text-center text-yellow-300">モード選択</h2>
+                <div class="flex flex-col md:flex-row gap-4 justify-center">
+                    <button id="start-solo-game" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg">オフライン（1人プレイ）</button>
+                    <button id="random-match" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg">オンライン（ランダムマッチ）</button>
+                    <button id="create-room" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg">オンライン（ルーム作成）</button>
+                </div>
+                <div id="join-room-section" class="flex flex-col md:flex-row gap-2 justify-center mt-4">
+                    <input id="join-room-id" type="text" placeholder="ルームIDを入力" class="w-full px-4 py-2 rounded-xl bg-gray-700 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    <button id="join-room-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-xl transition duration-300 shadow-lg">ルームに参加</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Online Game Waiting Section -->
+        <section id="online-game-section" class="hidden text-center space-y-6">
+            <h2 id="room-info" class="text-3xl font-bold text-yellow-300"></h2>
+            <p class="text-lg">他のプレイヤーを待っています...</p>
+            <div class="bg-gray-700 p-4 rounded-xl shadow-inner max-w-md mx-auto">
+                <h3 class="text-xl font-bold">参加者</h3>
+                <ul id="players-list" class="mt-2 list-disc list-inside"></ul>
+            </div>
+            <button id="start-game-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg hidden">ゲーム開始</button>
+            <p id="online-message-box" class="mt-4 text-sm text-center"></p>
+        </section>
+
+        <!-- Game Section -->
+        <section id="game-section" class="hidden text-center space-y-6">
+            <div class="bg-gray-700 p-6 rounded-2xl shadow-inner">
+                <p id="timer-display" class="text-5xl font-extrabold text-white">0.00</p>
+                <p class="text-gray-400 mt-2">経過時間</p>
+            </div>
+            
+            <div class="bg-gray-700 p-6 rounded-2xl shadow-inner">
+                <p class="text-2xl text-gray-400">この数を素因数分解せよ！</p>
+                <p id="number-display" class="text-7xl md:text-8xl font-black text-yellow-300 my-4 animate-pulse">0</p>
+            </div>
+            
+            <input id="input-field" type="text" placeholder="例: 2^3 * 5 * 7" class="w-full px-4 py-3 rounded-xl bg-gray-700 text-white placeholder-gray-400 text-lg text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
+            <p id="message-box" class="text-sm text-center font-bold"></p>
+        </section>
+
+        <!-- Result Section -->
+        <section id="result-section" class="hidden text-center space-y-6">
+            <h2 id="result-message" class="text-4xl font-extrabold"></h2>
+            <div id="result-details" class="bg-gray-700 p-6 rounded-2xl shadow-inner space-y-2 text-left"></div>
+            <button id="back-to-menu" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg">メニューに戻る</button>
+        </section>
+
+        <!-- Message Modal -->
+        <div id="message-modal" class="modal">
+            <div class="bg-gray-800 p-6 rounded-2xl shadow-2xl text-center space-y-4">
+                <p id="message-text" class="text-xl font-bold"></p>
+                <button id="close-modal" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-xl transition duration-300 shadow-lg">閉じる</button>
+            </div>
+        </div>
+
+    </div>
 </body>
 </html>
