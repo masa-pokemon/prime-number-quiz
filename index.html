@@ -3,811 +3,655 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>素因数分解早押しゲーム</title>
+    <title>素因数分解早押し</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .card {
+            background-color: #ffffff;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .input-box {
+            border: 2px solid #e5e7eb;
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+            width: 100%;
+            transition: border-color 0.3s;
+        }
+
+        .input-box:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+
+        .btn {
+            background-color: #6366f1;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: bold;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+
+        .btn:hover {
+            background-color: #4f46e5;
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+        
+        .timer-bar {
+            background-color: #e5e7eb;
+            height: 1rem;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            margin-top: 1rem;
+        }
+
+        .timer-fill {
+            background-color: #3b82f6;
+            height: 100%;
+            width: 100%;
+            transition: width 0.1s linear;
+        }
+        
+        .message-box {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            z-index: 100;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+    <!-- Firestore CDN -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, getDocs, arrayUnion, arrayRemove, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, addDoc, getDocs, runTransaction, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global variables for Firebase
+        // Firebase Configuration (provided by the user, with databaseURL fixed)
         const firebaseConfig = {
             apiKey: "AIzaSyCRn3SFElXUWjxQjYp4zeuo_T2cTeuBQGo",
             authDomain: "masa-chat-sechack365-2024.firebaseapp.com",
+            databaseURL: "https://masa-chat-sechack365-2024-default-rtdb.firebaseio.com",
             projectId: "masa-chat-sechack365-2024",
             storageBucket: "masa-chat-sechack365-2024.firebasestorage.app",
             messagingSenderId: "1044636784507",
             appId: "1:1044636784507:web:11e4d87a209d7ca56dcfde",
-            databaseURL: "https://masa-chat-sechack365-2024-default-rtdb.firebaseio.com",
             measurementId: "G-N8QNKPPR86"
         };
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
         
-        // Use provided app id
+        // Canvas-provided global variables
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfigFromCanvas = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        let userId = null;
-        let userName = '';
-        let currentNumber = 0;
-        let startTime = null;
-        let timerInterval = null;
-        let isGameRunning = false;
-        let isOnline = false;
-        let isHost = false;
-        let roomId = null;
-        let players = {};
-        let ratings = {};
-        let gameDifficulty = 'easy'; // Default difficulty
+        let app;
+        let db;
+        let auth;
+        let userId;
+        let userDocRef;
+        let roomDocRef;
+        let unsubscribeRoom;
 
-        // Get DOM elements
-        const introSection = document.getElementById('intro-section');
-        const gameSection = document.getElementById('game-section');
-        const onlineGameSection = document.getElementById('online-game-section');
-        const userNameInput = document.getElementById('user-name');
-        const startSoloBtn = document.getElementById('start-solo-game');
-        const createRoomBtn = document.getElementById('create-room');
-        const joinRoomSection = document.getElementById('join-room-section');
-        const joinRoomInput = document.getElementById('join-room-id');
-        const joinRoomBtn = document.getElementById('join-room-button');
-        const randomMatchBtn = document.getElementById('random-match');
-        const difficultySelect = document.getElementById('difficulty-select');
-        const numberDisplay = document.getElementById('number-display');
-        const timerDisplay = document.getElementById('timer-display');
-        const scoreDisplay = document.getElementById('score-display');
-        const inputField = document.getElementById('input-field');
-        const messageBox = document.getElementById('message-box');
-        const playersList = document.getElementById('players-list');
-        const roomInfo = document.getElementById('room-info');
-        const startGameBtn = document.getElementById('start-game-btn');
-        const resultSection = document.getElementById('result-section');
-        const resultMessage = document.getElementById('result-message');
-        const resultDetails = document.getElementById('result-details');
-        const backToMenuBtn = document.getElementById('back-to-menu');
-        const currentRatings = document.getElementById('current-ratings');
+        // Message box UI
+        const showMessage = (message, title = "お知らせ") => {
+            const container = document.getElementById('message-container');
+            container.innerHTML = `
+                <div class="message-box">
+                    <h3 class="text-xl font-bold mb-4">${title}</h3>
+                    <p>${message}</p>
+                    <button id="close-message-btn" class="mt-4 btn">OK</button>
+                </div>
+            `;
+            container.classList.remove('hidden');
+            document.getElementById('close-message-btn').onclick = () => container.classList.add('hidden');
+        };
 
-        // Prime numbers up to 1000 for checking factors
-        const primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443, 449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541, 547, 557, 563, 569, 571, 577, 587, 593, 599, 601, 607, 613, 617, 619, 631, 641, 643, 647, 653, 659, 661, 673, 677, 683, 691, 701, 709, 719, 727, 733, 739, 743, 751, 757, 761, 769, 773, 787, 797, 809, 811, 821, 823, 827, 829, 839, 853, 857, 859, 863, 877, 881, 883, 887, 907, 911, 919, 929, 937, 941, 947, 953, 967, 971, 977, 983, 991, 997];
+        // Firebase Initialization and Authentication
+        const setupFirebase = async () => {
+            try {
+                // Use canvas-provided config if available, otherwise use default
+                const configToUse = Object.keys(firebaseConfigFromCanvas).length > 0 ? firebaseConfigFromCanvas : firebaseConfig;
+                app = initializeApp(configToUse);
+                auth = getAuth(app);
+                db = getFirestore(app);
 
-        // --- Firebase Setup & Authentication ---
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                userId = user.uid;
-                await fetchUserRatings();
-                showSection('intro');
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userDocRef = doc(db, `artifacts/${appId}/users/${userId}/private`, 'profile');
+                        await checkAndCreateUser();
+                        document.getElementById('loading-screen').classList.add('hidden');
+                        showLoginScreen();
+                    } else {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase setup error:", error);
+                showMessage("Firebaseの初期化に失敗しました。インターネット接続を確認してください。", "エラー");
+            }
+        };
+
+        const checkAndCreateUser = async () => {
+            const docSnap = await getDoc(userDocRef);
+            if (!docSnap.exists()) {
+                await setDoc(userDocRef, {
+                    username: '',
+                    rating: 1000,
+                    createdAt: serverTimestamp()
+                });
             } else {
-                await signInAnonymously(auth);
-            }
-        });
-
-        const fetchUserRatings = async () => {
-            const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
-            const userDocSnap = await getDoc(userDocRef);
-            if (userDocSnap.exists()) {
-                ratings = userDocSnap.data().ratings || { easy: 1500, normal: 1500, hard: 1500 };
-            } else {
-                ratings = { easy: 1500, normal: 1500, hard: 1500 };
-                await setDoc(userDocRef, { ratings: ratings });
-            }
-            updateRatingsDisplay();
-        };
-
-        const updateRatingsDisplay = () => {
-            if (currentRatings) {
-                currentRatings.innerHTML = `
-                    <div class="p-2 bg-gray-700 rounded-lg shadow-inner">
-                        <h3 class="text-xl font-bold mb-2">現在のレート</h3>
-                        <p>簡単: <span class="text-yellow-400 font-bold">${ratings.easy}</span></p>
-                        <p>普通: <span class="text-yellow-400 font-bold">${ratings.normal}</span></p>
-                        <p>難しい: <span class="text-yellow-400 font-bold">${ratings.hard}</span></p>
-                    </div>
-                `;
-            }
-        };
-
-        // --- UI State Management ---
-        const showSection = (sectionName) => {
-            introSection.style.display = 'none';
-            gameSection.style.display = 'none';
-            onlineGameSection.style.display = 'none';
-            resultSection.style.display = 'none';
-            
-            switch (sectionName) {
-                case 'intro':
-                    introSection.style.display = 'block';
-                    break;
-                case 'solo':
-                    gameSection.style.display = 'block';
-                    break;
-                case 'online':
-                    onlineGameSection.style.display = 'block';
-                    break;
-                case 'result':
-                    resultSection.style.display = 'block';
-                    break;
-            }
-        };
-
-        // --- Game Logic ---
-        const primeFactorize = (n) => {
-            let factors = {};
-            let tempN = n;
-            for (let i = 0; i < primes.length; i++) {
-                const p = primes[i];
-                if (p * p > tempN) break;
-                while (tempN % p === 0) {
-                    factors[p] = (factors[p] || 0) + 1;
-                    tempN /= p;
+                const userData = docSnap.data();
+                if (userData.username) {
+                    document.getElementById('username-display').innerText = `ユーザー名: ${userData.username}`;
+                    document.getElementById('rating-display').innerText = `レート: ${userData.rating}`;
                 }
             }
-            if (tempN > 1) {
-                factors[tempN] = (factors[tempN] || 0) + 1;
-            }
-            return factors;
         };
+
+        const setUsername = async (username) => {
+            if (!username) {
+                showMessage("ユーザー名を入力してください。", "エラー");
+                return;
+            }
+            try {
+                await updateDoc(userDocRef, { username: username });
+                document.getElementById('username-display').innerText = `ユーザー名: ${username}`;
+                document.getElementById('name-input-screen').classList.add('hidden');
+                showMainScreen();
+            } catch (e) {
+                console.error("Error setting username:", e);
+                showMessage("ユーザー名の設定に失敗しました。", "エラー");
+            }
+        };
+        
+        // Screen Navigation
+        const showScreen = (screenId) => {
+            document.querySelectorAll('.screen').forEach(screen => {
+                screen.classList.add('hidden');
+            });
+            document.getElementById(screenId).classList.remove('hidden');
+        };
+        const showLoginScreen = () => showScreen('name-input-screen');
+        const showMainScreen = () => showScreen('main-menu-screen');
+        const showOnlineMenu = () => showScreen('online-menu-screen');
+        const showRoomLobby = () => showScreen('room-lobby-screen');
+        const showGameScreen = () => showScreen('game-screen');
+        
+        // Game Logic
+        let gameData = {};
+        let timerInterval;
+        let timer = 30; // 30 seconds per question
+        const primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97];
 
         const generateNumber = (difficulty) => {
-            let min, max;
-            switch (difficulty) {
-                case 'easy':
-                    min = 10; max = 100;
-                    break;
-                case 'normal':
-                    min = 100; max = 1000;
-                    break;
-                case 'hard':
-                    min = 1000; max = 10000;
-                    break;
-                default:
-                    min = 10; max = 100;
+            let n = 1;
+            let factors = [];
+            let numPrimes = 0;
+            if (difficulty === 'easy') {
+                numPrimes = Math.floor(Math.random() * 2) + 2; // 2 or 3 primes
+            } else if (difficulty === 'normal') {
+                numPrimes = Math.floor(Math.random() * 2) + 3; // 3 or 4 primes
+            } else { // hard
+                numPrimes = Math.floor(Math.random() * 3) + 4; // 4 to 6 primes
             }
-            let num;
-            do {
-                num = Math.floor(Math.random() * (max - min + 1)) + min;
-            } while (primeFactorize(num).length === 1); // Avoid prime numbers for factorization
-            return num;
+            
+            for (let i = 0; i < numPrimes; i++) {
+                const primeIndex = Math.floor(Math.random() * primes.length);
+                n *= primes[primeIndex];
+                factors.push(primes[primeIndex]);
+            }
+            factors.sort((a, b) => a - b);
+            return { number: n, factors: factors };
         };
 
-        const checkAnswer = (input, correctFactors) => {
-            const parsedInput = input.split(/[\*\s\^]+/);
-            let userFactors = {};
-            for (let i = 0; i < parsedInput.length; i++) {
-                const part = parsedInput[i].trim();
-                if (!part) continue;
-                if (part.includes('^')) {
-                    const [base, exponent] = part.split('^').map(Number);
-                    if (isNaN(base) || isNaN(exponent)) return false;
-                    userFactors[base] = (userFactors[base] || 0) + exponent;
-                } else {
-                    const base = Number(part);
-                    if (isNaN(base)) return false;
-                    userFactors[base] = (userFactors[base] || 0) + 1;
-                }
-            }
-
-            const correctKeys = Object.keys(correctFactors);
-            const userKeys = Object.keys(userFactors);
-
-            if (correctKeys.length !== userKeys.length) return false;
-
-            for (const key of correctKeys) {
-                if (correctFactors[key] !== userFactors[key]) {
-                    return false;
-                }
-            }
-
-            return true;
-        };
-
-        const formatFactors = (factors) => {
-            return Object.entries(factors).map(([base, exp]) => {
-                if (exp === 1) return base;
-                return `${base}^${exp}`;
-            }).join(' * ');
-        };
-
-        const showMessage = (message, isError = false) => {
-            messageBox.textContent = message;
-            messageBox.style.color = isError ? 'red' : 'green';
-        };
-
-        const startGame = (mode) => {
-            isOnline = (mode === 'online');
-            isGameRunning = true;
-            inputField.value = '';
-            showMessage('');
-            resultSection.style.display = 'none';
-
-            if (!isOnline) {
-                showSection('solo');
-                startTimer();
-                currentNumber = generateNumber(difficultySelect.value);
-                numberDisplay.textContent = currentNumber;
-                inputField.focus();
-            } else {
-                // Online game logic is handled by Firestore listener
-                numberDisplay.textContent = 'ゲーム開始を待っています...';
-            }
-        };
-
-        const endGame = (isWin) => {
-            isGameRunning = false;
-            clearInterval(timerInterval);
-            let timeTaken = 0;
-            if (startTime) {
-                timeTaken = (new Date() - startTime) / 1000;
-            }
-
-            const correctFactors = primeFactorize(currentNumber);
-            const formattedFactors = formatFactors(correctFactors);
-
-            showSection('result');
-            resultDetails.innerHTML = `
-                <p>問題: ${currentNumber}</p>
-                <p>正解: ${formattedFactors}</p>
-                <p>経過時間: ${timeTaken.toFixed(2)}秒</p>
-            `;
-
-            if (!isOnline) {
-                if (isWin) {
-                    resultMessage.textContent = '正解です！';
-                    resultMessage.style.color = 'green';
-                } else {
-                    resultMessage.textContent = '不正解です...';
-                    resultMessage.style.color = 'red';
-                }
-                updateSoloRating(isWin, timeTaken);
-            }
-        };
-
-        const updateSoloRating = (isWin, timeTaken) => {
-            const difficulty = difficultySelect.value;
-            let currentRating = ratings[difficulty];
-            let newRating;
-            const kFactor = 40; // High K-factor for rapid change
-            const timeFactor = 10; // Time penalty/bonus factor
-
-            if (isWin) {
-                const baseChange = kFactor;
-                const bonus = Math.max(0, timeFactor - timeTaken);
-                newRating = Math.round(currentRating + baseChange + bonus);
-                showMessageBox(`レートが ${newRating - currentRating} 上がりました！`);
-            } else {
-                const baseChange = kFactor;
-                newRating = Math.round(currentRating - baseChange);
-                showMessageBox(`レートが ${currentRating - newRating} 下がりました...`);
-            }
-            ratings[difficulty] = newRating;
-            updateFirestoreRating();
-            updateRatingsDisplay();
-        };
-
-        const updateFirestoreRating = async () => {
-            const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
+        const isCorrectAnswer = (userAnswer, correctFactors) => {
             try {
-                await updateDoc(userDocRef, { ratings: ratings });
-            } catch (e) {
-                console.error("Error updating rating: ", e);
+                const sortedUserFactors = userAnswer.split('*').map(Number).sort((a, b) => a - b);
+                if (sortedUserFactors.length !== correctFactors.length) return false;
+                for (let i = 0; i < sortedUserFactors.length; i++) {
+                    if (sortedUserFactors[i] !== correctFactors[i]) return false;
+                }
+                return true;
+            } catch {
+                return false;
             }
         };
-
-        // --- Timer ---
-        const startTimer = () => {
-            startTime = new Date();
-            timerDisplay.textContent = '0.00';
+        
+        const startGame = (mode, difficulty = 'normal', roomId = null) => {
+            showGameScreen();
+            const { number, factors } = generateNumber(difficulty);
+            gameData = { number, factors, startTime: Date.now(), mode, roomId };
+            document.getElementById('question-number').innerText = number;
+            document.getElementById('result-message').innerText = '';
+            document.getElementById('answer-input').value = '';
+            document.getElementById('game-area').classList.remove('hidden');
+            document.getElementById('leaderboard-area').classList.add('hidden');
+            
+            timer = 30;
+            updateTimerBar();
             timerInterval = setInterval(() => {
-                const elapsedTime = (new Date() - startTime) / 1000;
-                timerDisplay.textContent = elapsedTime.toFixed(2);
-            }, 10);
-        };
-
-        // --- Event Listeners ---
-        startSoloBtn.addEventListener('click', () => {
-            userName = userNameInput.value.trim();
-            if (userName === '') {
-                showMessageBox('ユーザー名を入力してください', true);
-                return;
-            }
-            difficultySelect.disabled = false;
-            gameDifficulty = difficultySelect.value;
-            startGame('solo');
-        });
-
-        inputField.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && isGameRunning) {
-                e.preventDefault();
-                const correctFactors = primeFactorize(currentNumber);
-                const isCorrect = checkAnswer(inputField.value.trim(), correctFactors);
-                endGame(isCorrect);
-            }
-        });
-
-        backToMenuBtn.addEventListener('click', () => {
-            showSection('intro');
-            resetGame();
-        });
-
-        // --- Online Game Logic ---
-        createRoomBtn.addEventListener('click', async () => {
-            userName = userNameInput.value.trim();
-            if (userName === '') {
-                showMessageBox('ユーザー名を入力してください', true);
-                return;
-            }
-            if (isOnline) {
-                showMessageBox('すでにオンラインゲームに参加しています。', true);
-                return;
-            }
-            difficultySelect.disabled = true;
-            isHost = true;
-            gameDifficulty = difficultySelect.value;
-            await createOnlineRoom();
-        });
-
-        joinRoomBtn.addEventListener('click', async () => {
-            userName = userNameInput.value.trim();
-            const roomCode = joinRoomInput.value.trim();
-            if (userName === '') {
-                showMessageBox('ユーザー名を入力してください', true);
-                return;
-            }
-            if (roomCode === '') {
-                showMessageBox('ルームIDを入力してください', true);
-                return;
-            }
-            if (isOnline) {
-                showMessageBox('すでにオンラインゲームに参加しています。', true);
-                return;
-            }
-            difficultySelect.disabled = true;
-            await joinOnlineRoom(roomCode);
-        });
-
-        randomMatchBtn.addEventListener('click', async () => {
-            userName = userNameInput.value.trim();
-            if (userName === '') {
-                showMessageBox('ユーザー名を入力してください', true);
-                return;
-            }
-            if (isOnline) {
-                showMessageBox('すでにオンラインゲームに参加しています。', true);
-                return;
-            }
-            difficultySelect.disabled = true;
-            await findRandomMatch();
-        });
-
-        startGameBtn.addEventListener('click', async () => {
-            if (!isHost) {
-                showMessageBox('ホストのみがゲームを開始できます。', true);
-                return;
-            }
-            if (Object.keys(players).length < 2) {
-                showMessageBox('2人以上プレイヤーが必要です。', true);
-                return;
-            }
-            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
-            const num = generateNumber(gameDifficulty);
-            await updateDoc(roomDocRef, {
-                status: 'playing',
-                currentNumber: num,
-                answers: {},
-                winner: null
-            });
-        });
-
-        const createOnlineRoom = async () => {
-            try {
-                const roomsColRef = collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
-                const newRoomDoc = await addDoc(roomsColRef, {
-                    host: userId,
-                    players: [{ userId: userId, userName: userName, rating: ratings[gameDifficulty] }],
-                    status: 'waiting',
-                    difficulty: gameDifficulty,
-                    createdAt: new Date(),
-                    currentNumber: null,
-                    answers: {},
-                    winner: null
-                });
-                roomId = newRoomDoc.id;
-                isOnline = true;
-                await listenToRoomUpdates();
-                showSection('online');
-                showMessageBox(`ルームID: ${roomId}`);
-                roomInfo.textContent = `ルームID: ${roomId} (ホスト)`;
-                startGameBtn.style.display = 'block';
-            } catch (e) {
-                console.error("Error creating room: ", e);
-                showMessageBox('ルームの作成に失敗しました。', true);
-                isOnline = false;
-                isHost = false;
-            }
-        };
-
-        const joinOnlineRoom = async (roomCode) => {
-            try {
-                const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomCode);
-                const roomDocSnap = await getDoc(roomDocRef);
-                if (!roomDocSnap.exists()) {
-                    showMessageBox('指定されたルームが見つかりません。', true);
-                    return;
+                timer--;
+                updateTimerBar();
+                if (timer <= 0) {
+                    clearInterval(timerInterval);
+                    endGame(false, '時間切れ');
                 }
-                const roomData = roomDocSnap.data();
-                if (roomData.players.length >= 4) {
-                    showMessageBox('このルームは満員です。', true);
-                    return;
-                }
-                if (roomData.status !== 'waiting') {
-                    showMessageBox('このルームはすでにゲーム中です。', true);
-                    return;
-                }
-                roomId = roomCode;
-                isOnline = true;
-                gameDifficulty = roomData.difficulty;
+            }, 1000);
+            
+            if (mode === 'online' && gameData.roomId) {
+                // Online game logic
+                const gameRef = doc(db, `artifacts/${appId}/public/data/games`, gameData.roomId);
+                onSnapshot(gameRef, (docSnap) => {
+                    const roomData = docSnap.data();
+                    if (!roomData) return;
+                    
+                    const leaderboardHtml = roomData.players.map(p => `
+                        <li class="flex justify-between items-center p-2 rounded-lg ${p.userId === userId ? 'bg-indigo-100' : ''}">
+                            <span>${p.username}</span>
+                            <span>${p.score}</span>
+                        </li>
+                    `).join('');
+                    document.getElementById('leaderboard-list').innerHTML = leaderboardHtml;
 
-                await updateDoc(roomDocRef, {
-                    players: arrayUnion({ userId: userId, userName: userName, rating: ratings[gameDifficulty] })
-                });
-
-                await listenToRoomUpdates();
-                showSection('online');
-                roomInfo.textContent = `ルームID: ${roomId}`;
-                startGameBtn.style.display = 'none';
-            } catch (e) {
-                console.error("Error joining room: ", e);
-                showMessageBox('ルームへの参加に失敗しました。', true);
-                isOnline = false;
-            }
-        };
-
-        const findRandomMatch = async () => {
-            try {
-                const roomsColRef = collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
-                const q = query(roomsColRef, where('status', '==', 'waiting'));
-                const querySnapshot = await getDocs(q);
-                let foundRoom = false;
-
-                // Find a room that isn't full
-                for (const doc of querySnapshot.docs) {
-                    const roomData = doc.data();
-                    if (roomData.players.length < 4) {
-                        joinOnlineRoom(doc.id);
-                        foundRoom = true;
-                        break;
+                    if (roomData.state === 'finished' && roomData.winnerId) {
+                         clearInterval(timerInterval);
+                         endGame(false, 'ゲーム終了');
+                         if (roomData.winnerId === userId) {
+                             showMessage("おめでとうございます！あなたが勝ちました！", "ゲーム終了");
+                         } else {
+                             const winner = roomData.players.find(p => p.userId === roomData.winnerId);
+                             showMessage(`${winner.username}が勝ちました。`, "ゲーム終了");
+                         }
+                    } else if (roomData.questionNumber !== gameData.number) {
+                        // Sync new question from host
+                        gameData.number = roomData.questionNumber;
+                        gameData.factors = []; // Factors are not shared directly
+                        document.getElementById('question-number').innerText = roomData.questionNumber;
+                        document.getElementById('answer-input').value = '';
+                        timer = 30;
+                        updateTimerBar();
                     }
-                }
-
-                if (!foundRoom) {
-                    // No room found, create a new one
-                    isHost = true;
-                    createOnlineRoom();
-                }
-            } catch (e) {
-                console.error("Error finding random match: ", e);
-                showMessageBox('ランダムマッチングに失敗しました。', true);
+                });
             }
         };
 
-        const listenToRoomUpdates = async () => {
-            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
-            onSnapshot(roomDocRef, (docSnap) => {
-                if (!docSnap.exists()) {
-                    showMessageBox('ルームが削除されました。メニューに戻ります。', true);
-                    resetGame();
-                    return;
-                }
-                const roomData = docSnap.data();
-                players = roomData.players.reduce((acc, p) => {
-                    acc[p.userId] = p;
-                    return acc;
-                }, {});
+        const updateTimerBar = () => {
+            const fill = document.getElementById('timer-fill');
+            const percentage = (timer / 30) * 100;
+            fill.style.width = `${percentage}%`;
+        };
+
+        const endGame = (isCorrect, message) => {
+            clearInterval(timerInterval);
+            document.getElementById('game-area').classList.add('hidden');
+            document.getElementById('leaderboard-area').classList.remove('hidden');
+            document.getElementById('final-message').innerText = message;
+            
+            if (isCorrect && gameData.mode === 'online') {
+                submitOnlineAnswer(true);
+            }
+        };
+        
+        const submitAnswer = async () => {
+            const userAnswer = document.getElementById('answer-input').value.trim();
+            const isCorrect = isCorrectAnswer(userAnswer, gameData.factors);
+            
+            if (isCorrect) {
+                const timeTaken = (Date.now() - gameData.startTime) / 1000;
+                let score = Math.max(0, 100 - Math.floor(timeTaken * 2));
                 
-                updatePlayersList();
-
-                if (roomData.status === 'playing') {
-                    if (!isGameRunning) {
-                        currentNumber = roomData.currentNumber;
-                        startGame('online');
-                    }
-                    numberDisplay.textContent = currentNumber;
-                    inputField.focus();
+                if (gameData.mode === 'online') {
+                    submitOnlineAnswer(score);
+                } else {
+                    document.getElementById('result-message').innerText = `正解です！スコア: ${score}`;
+                    endGame(true, `正解です！タイム: ${timeTaken.toFixed(2)}秒 スコア: ${score}`);
                 }
-
-                if (roomData.winner) {
-                    endOnlineGame(roomData.winner);
+            } else {
+                if (gameData.mode === 'offline') {
+                    document.getElementById('result-message').innerText = `不正解です。正解は ${gameData.factors.join('*')}`;
                 }
-            });
+                endGame(false, `不正解です。もう一度チャレンジ！`);
+            }
         };
-
-        const updatePlayersList = () => {
-            playersList.innerHTML = '';
-            Object.values(players).forEach(p => {
-                const playerEl = document.createElement('li');
-                playerEl.textContent = `${p.userName} (レート: ${p.rating})`;
-                if (p.userId === userId) {
-                    playerEl.classList.add('font-bold', 'text-yellow-300');
-                }
-                playersList.appendChild(playerEl);
-            });
-        };
-
-        const submitOnlineAnswer = async () => {
-            if (!isOnline || !isGameRunning) return;
-            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
-            const input = inputField.value.trim();
-            const correctFactors = primeFactorize(currentNumber);
-            const isCorrect = checkAnswer(input, correctFactors);
-
+        
+        const submitOnlineAnswer = async (score) => {
+            if (!gameData.roomId) return;
+            const gameRef = doc(db, `artifacts/${appId}/public/data/games`, gameData.roomId);
+            
             try {
-                await updateDoc(roomDocRef, {
-                    [`answers.${userId}`]: {
-                        userName: userName,
-                        answer: input,
-                        isCorrect: isCorrect,
-                        time: new Date()
+                await runTransaction(db, async (transaction) => {
+                    const roomDoc = await transaction.get(gameRef);
+                    if (!roomDoc.exists()) {
+                        throw "Room does not exist!";
+                    }
+                    
+                    const roomData = roomDoc.data();
+                    const playerIndex = roomData.players.findIndex(p => p.userId === userId);
+                    if (playerIndex > -1) {
+                        const newPlayers = [...roomData.players];
+                        newPlayers[playerIndex].score = score;
+                        newPlayers[playerIndex].isFinished = true;
+                        
+                        // Check if all players have finished
+                        const allFinished = newPlayers.every(p => p.isFinished);
+                        if (allFinished) {
+                            const winner = newPlayers.sort((a,b) => b.score - a.score)[0];
+                            transaction.update(gameRef, { players: newPlayers, state: 'finished', winnerId: winner.userId });
+                            await updateRating(winner.userId);
+                        } else {
+                            transaction.update(gameRef, { players: newPlayers });
+                        }
                     }
                 });
-
-                if (isCorrect) {
-                    await updateDoc(roomDocRef, {
-                        winner: userId
-                    });
-                }
             } catch (e) {
-                console.error("Error submitting answer: ", e);
+                console.error("Transaction failed: ", e);
+                showMessage("回答の送信に失敗しました。", "エラー");
             }
         };
-        inputField.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && isGameRunning) {
-                e.preventDefault();
-                if (isOnline) {
-                    submitOnlineAnswer();
+        
+        const updateRating = async (winnerId) => {
+             const userRef = doc(db, `artifacts/${appId}/users/${userId}/private`, 'profile');
+             const winnerRef = doc(db, `artifacts/${appId}/users/${winnerId}/private`, 'profile');
+             
+             try {
+                await runTransaction(db, async (transaction) => {
+                    const userDoc = await transaction.get(userRef);
+                    const winnerDoc = await transaction.get(winnerRef);
+                    if (!userDoc.exists() || !winnerDoc.exists()) {
+                         throw "User profile not found.";
+                    }
+                    const userData = userDoc.data();
+                    const winnerData = winnerDoc.data();
+                    
+                    // Simple ELO-like rating update
+                    const k = 32;
+                    const expectedScoreUser = 1 / (1 + Math.pow(10, (winnerData.rating - userData.rating) / 400));
+                    const expectedScoreWinner = 1 / (1 + Math.pow(10, (userData.rating - winnerData.rating) / 400));
+                    
+                    const newRatingUser = userData.rating + k * (0 - expectedScoreUser);
+                    const newRatingWinner = winnerData.rating + k * (1 - expectedScoreWinner);
+                    
+                    transaction.update(userRef, { rating: Math.round(newRatingUser) });
+                    transaction.update(winnerRef, { rating: Math.round(newRatingWinner) });
+                });
+                
+            } catch (e) {
+                console.error("Rating update failed: ", e);
+            }
+        };
+
+        // Room Management
+        const createRoom = async () => {
+            const userProfile = (await getDoc(userDocRef)).data();
+            if (!userProfile || !userProfile.username) {
+                showMessage("ルームを作成するにはユーザー名が必要です。", "エラー");
+                return;
+            }
+            const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            try {
+                await setDoc(doc(db, `artifacts/${appId}/public/data/rooms`, roomId), {
+                    hostId: userId,
+                    players: [
+                        { userId: userId, username: userProfile.username, score: 0 }
+                    ],
+                    state: 'waiting',
+                    createdAt: serverTimestamp()
+                });
+                joinRoom(roomId);
+            } catch (e) {
+                console.error("Error creating room:", e);
+                showMessage("ルームの作成に失敗しました。", "エラー");
+            }
+        };
+
+        const joinRoom = async (roomId) => {
+            const userProfile = (await getDoc(userDocRef)).data();
+            if (!userProfile || !userProfile.username) {
+                showMessage("ルームに参加するにはユーザー名が必要です。", "エラー");
+                return;
+            }
+            roomDocRef = doc(db, `artifacts/${appId}/public/data/rooms`, roomId);
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const roomDoc = await transaction.get(roomDocRef);
+                    if (!roomDoc.exists()) {
+                        throw "Room does not exist!";
+                    }
+                    const roomData = roomDoc.data();
+                    if (roomData.state !== 'waiting') {
+                        throw "このルームはすでにゲームが始まっています。";
+                    }
+                    if (roomData.players.length >= 4) {
+                        throw "このルームは満員です。";
+                    }
+                    if (roomData.players.some(p => p.userId === userId)) {
+                        throw "すでにこのルームに参加しています。";
+                    }
+
+                    const newPlayers = arrayUnion({
+                        userId: userId,
+                        username: userProfile.username,
+                        score: 0,
+                        isFinished: false
+                    });
+                    transaction.update(roomDocRef, { players: newPlayers });
+                });
+                
+                showRoomLobby();
+                listenToRoom(roomId);
+
+            } catch (e) {
+                console.error("Error joining room:", e);
+                showMessage(`ルーム参加に失敗しました: ${e}`, "エラー");
+            }
+        };
+        
+        const listenToRoom = (roomId) => {
+            if (unsubscribeRoom) unsubscribeRoom();
+            unsubscribeRoom = onSnapshot(doc(db, `artifacts/${appId}/public/data/rooms`, roomId), (docSnap) => {
+                const roomData = docSnap.data();
+                if (!roomData) return;
+                
+                document.getElementById('lobby-room-id').innerText = `ルームID: ${roomId}`;
+                
+                const playerListHtml = roomData.players.map(p => `
+                    <li class="p-2 border-b border-gray-200">${p.username}</li>
+                `).join('');
+                document.getElementById('lobby-player-list').innerHTML = playerListHtml;
+                
+                // Show Start button only for the host
+                if (roomData.hostId === userId && roomData.players.length >= 2) {
+                    document.getElementById('start-game-btn').classList.remove('hidden');
                 } else {
-                    const correctFactors = primeFactorize(currentNumber);
-                    const isCorrect = checkAnswer(inputField.value.trim(), correctFactors);
-                    endGame(isCorrect);
+                    document.getElementById('start-game-btn').classList.add('hidden');
                 }
+
+                // Game start signal
+                if (roomData.state === 'in-game') {
+                    startGame('online', 'normal', roomId);
+                }
+            });
+        };
+        
+        const startOnlineGame = async () => {
+            if (!roomDocRef) return;
+            try {
+                const { number } = generateNumber('normal');
+                await updateDoc(roomDocRef, { state: 'in-game', questionNumber: number, startedAt: serverTimestamp() });
+            } catch (e) {
+                console.error("Error starting game:", e);
+                showMessage("ゲームの開始に失敗しました。", "エラー");
+            }
+        };
+
+        const leaveRoom = () => {
+             if (unsubscribeRoom) {
+                unsubscribeRoom();
+                unsubscribeRoom = null;
+            }
+            if (roomDocRef) {
+                // Remove player from the room or delete room if host
+                // This logic is simplified for the example
+                showMainScreen();
+            }
+        };
+
+        const findRandomRoom = async () => {
+            const roomsCol = collection(db, `artifacts/${appId}/public/data/rooms`);
+            const q = query(roomsCol, where('state', '==', 'waiting'));
+            const querySnapshot = await getDocs(q);
+            
+            if (!querySnapshot.empty) {
+                const room = querySnapshot.docs[0];
+                joinRoom(room.id);
+            } else {
+                showMessage("参加可能なルームが見つかりませんでした。新しいルームを作成します。", "お知らせ");
+                createRoom();
+            }
+        };
+
+
+        // Event Listeners
+        window.onload = setupFirebase;
+        document.getElementById('set-username-btn').onclick = () => {
+            const username = document.getElementById('username-input').value.trim();
+            setUsername(username);
+        };
+        document.getElementById('play-offline-btn').onclick = () => startGame('offline', 'normal');
+        document.getElementById('play-online-btn').onclick = showOnlineMenu;
+        document.getElementById('random-match-btn').onclick = findRandomRoom;
+        document.getElementById('create-room-btn').onclick = createRoom;
+        document.getElementById('join-room-btn').onclick = () => {
+            const roomId = document.getElementById('join-room-input').value.trim().toUpperCase();
+            if (roomId) joinRoom(roomId);
+            else showMessage("ルームIDを入力してください。", "エラー");
+        };
+        document.getElementById('start-game-btn').onclick = startOnlineGame;
+        document.getElementById('leave-room-btn').onclick = leaveRoom;
+        document.getElementById('submit-answer-btn').onclick = submitAnswer;
+        document.getElementById('answer-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                submitAnswer();
             }
         });
-
-        const endOnlineGame = async (winnerId) => {
-            isGameRunning = false;
-            clearInterval(timerInterval);
-            const correctFactors = primeFactorize(currentNumber);
-            const formattedFactors = formatFactors(correctFactors);
-            const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
-            const roomDocSnap = await getDoc(roomDocRef);
-            const roomData = roomDocSnap.data();
-            const answers = roomData.answers;
-
-            const winner = players[winnerId];
-
-            showSection('result');
-            resultMessage.textContent = `${winner.userName}の勝利！`;
-            resultMessage.style.color = 'green';
-            resultDetails.innerHTML = `
-                <p>問題: ${currentNumber}</p>
-                <p>正解: ${formattedFactors}</p>
-            `;
-            
-            // Calculate and update ratings
-            const playerRatings = Object.entries(players).reduce((acc, [id, data]) => {
-                acc[id] = data.rating;
-                return acc;
-            }, {});
-
-            const newRatings = calculateElo(playerRatings, winnerId);
-            for (const pId in newRatings) {
-                if (pId === userId) {
-                    ratings[gameDifficulty] = newRatings[pId];
-                    updateFirestoreRating();
-                }
-            }
-            updateRatingsDisplay();
-
-            // Display all players' results
-            let playersResultHtml = '<h3 class="text-xl font-bold mt-4">プレイヤーの結果</h3><ul class="list-disc list-inside mt-2">';
-            Object.values(players).forEach(p => {
-                const answerInfo = answers[p.userId] || { isCorrect: false, answer: '回答なし' };
-                playersResultHtml += `
-                    <li>
-                        <strong>${p.userName}:</strong>
-                        <span>${answerInfo.isCorrect ? '正解' : '不正解'}</span>,
-                        <span>回答: ${answerInfo.answer}</span>
-                    </li>
-                `;
-            });
-            playersResultHtml += '</ul>';
-            resultDetails.innerHTML += playersResultHtml;
-
-            // --- FIX: Remove player by filtering array and updating ---
-            const updatedPlayers = roomData.players.filter(p => p.userId !== userId);
-            await updateDoc(roomDocRef, {
-                players: updatedPlayers
-            });
-
-            // If the room is empty, delete it
-            const updatedRoomDocSnap = await getDoc(roomDocRef);
-            if (updatedRoomDocSnap.exists() && updatedRoomDocSnap.data().players.length === 0) {
-                // Delete room
-                await deleteDoc(roomDocRef);
-            }
-
-            resetGame();
-        };
-
-        const calculateElo = (currentRatings, winnerId) => {
-            const K = 32;
-            const newRatings = { ...currentRatings };
-            const players = Object.keys(currentRatings);
-
-            for (const playerA of players) {
-                for (const playerB of players) {
-                    if (playerA === playerB) continue;
-
-                    const ratingA = currentRatings[playerA];
-                    const ratingB = currentRatings[playerB];
-
-                    const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-                    const expectedB = 1 / (1 + Math.pow(10, (ratingA - ratingB) / 400));
-
-                    let scoreA = 0;
-                    if (playerA === winnerId) {
-                        scoreA = 1;
-                    }
-
-                    let scoreB = 0;
-                    if (playerB === winnerId) {
-                        scoreB = 1;
-                    }
-
-                    if (scoreA !== scoreB) { // Only update if there's a winner
-                        newRatings[playerA] += K * (scoreA - expectedA);
-                        newRatings[playerB] += K * (scoreB - expectedB);
-                    }
-                }
-            }
-            
-            for (const player of players) {
-                newRatings[player] = Math.round(newRatings[player]);
-            }
-
-            return newRatings;
-        };
-        
-        const resetGame = () => {
-            isOnline = false;
-            isHost = false;
-            roomId = null;
-            players = {};
-            currentNumber = 0;
-            startTime = null;
-            clearInterval(timerInterval);
-            isGameRunning = false;
-            inputField.value = '';
-            showMessage('');
-            roomInfo.textContent = '';
-            startGameBtn.style.display = 'none';
-            playersList.innerHTML = '';
-            difficultySelect.disabled = false;
-        };
-
-        const showMessageBox = (message, isError = false) => {
-            const modal = document.getElementById('message-modal');
-            const modalText = document.getElementById('message-text');
-            modalText.textContent = message;
-            modalText.style.color = isError ? 'red' : 'green';
-            modal.style.display = 'flex';
-        };
-
-        const closeModalBtn = document.getElementById('close-modal');
-        if (closeModalBtn) {
-            closeModalBtn.addEventListener('click', () => {
-                document.getElementById('message-modal').style.display = 'none';
-            });
-        }
-
+        document.getElementById('back-to-menu-btn').onclick = showMainScreen;
     </script>
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 100;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.5);
-            backdrop-filter: blur(5px);
-            justify-content: center;
-            align-items: center;
-        }
-    </style>
-</head>
-<body class="bg-gray-900 text-gray-100 min-h-screen flex items-center justify-center p-4">
+    
+    <!-- Message Container -->
+    <div id="message-container" class="hidden"></div>
 
-    <!-- Main Container -->
-    <div class="container bg-gray-800 p-8 rounded-2xl shadow-2xl space-y-8">
-        <h1 class="text-4xl font-extrabold text-center text-yellow-300">素因数分解早押しゲーム</h1>
-        
-        <!-- Intro Section -->
-        <section id="intro-section" class="space-y-6">
-            <div class="flex flex-col items-center space-y-4">
-                <input id="user-name" type="text" placeholder="ユーザー名を入力してください" class="w-full max-w-sm px-4 py-2 rounded-xl bg-gray-700 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                <select id="difficulty-select" class="w-full max-w-sm px-4 py-2 rounded-xl bg-gray-700 text-gray-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                    <option value="easy">簡単 (10-100)</option>
-                    <option value="normal">普通 (100-1000)</option>
-                    <option value="hard">難しい (1000-10000)</option>
-                </select>
+    <!-- Main Card Container -->
+    <div class="card">
+        <!-- Loading Screen -->
+        <div id="loading-screen" class="screen">
+            <h2 class="text-2xl font-bold mb-4">ロード中...</h2>
+            <p>ゲームの準備をしています...</p>
+        </div>
+
+        <!-- Username Input Screen -->
+        <div id="name-input-screen" class="screen hidden">
+            <h2 class="text-2xl font-bold mb-4">ユーザー名を入力してください</h2>
+            <input id="username-input" type="text" placeholder="あなたのユーザー名" class="input-box mb-4">
+            <button id="set-username-btn" class="btn w-full">決定</button>
+        </div>
+
+        <!-- Main Menu Screen -->
+        <div id="main-menu-screen" class="screen hidden">
+            <div class="flex justify-between items-center mb-6">
+                <p id="username-display" class="font-bold text-gray-700"></p>
+                <p id="rating-display" class="font-bold text-gray-700"></p>
             </div>
-            
-            <div id="current-ratings" class="text-center"></div>
-
+            <h1 class="text-3xl font-bold mb-6">素因数分解早押し</h1>
             <div class="space-y-4">
-                <h2 class="text-2xl font-bold text-center text-yellow-300">モード選択</h2>
-                <div class="flex flex-col md:flex-row gap-4 justify-center">
-                    <button id="start-solo-game" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg">オフライン（1人プレイ）</button>
-                    <button id="random-match" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg">オンライン（ランダムマッチ）</button>
-                    <button id="create-room" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg">オンライン（ルーム作成）</button>
+                <button id="play-online-btn" class="btn w-full">オンラインでプレイ</button>
+                <button id="play-offline-btn" class="btn w-full">オフラインでプレイ</button>
+            </div>
+        </div>
+        
+        <!-- Online Menu Screen -->
+        <div id="online-menu-screen" class="screen hidden">
+            <h2 class="text-2xl font-bold mb-6">オンライン対戦</h2>
+            <div class="space-y-4">
+                <button id="random-match-btn" class="btn w-full">ランダムマッチ</button>
+                <button id="create-room-btn" class="btn w-full">ルームを作成</button>
+                <div class="flex space-x-2">
+                    <input id="join-room-input" type="text" placeholder="ルームIDを入力" class="input-box flex-grow">
+                    <button id="join-room-btn" class="btn">参加</button>
                 </div>
-                <div id="join-room-section" class="flex flex-col md:flex-row gap-2 justify-center mt-4">
-                    <input id="join-room-id" type="text" placeholder="ルームIDを入力" class="w-full px-4 py-2 rounded-xl bg-gray-700 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                    <button id="join-room-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-xl transition duration-300 shadow-lg">ルームに参加</button>
-                </div>
-            </div>
-        </section>
-
-        <!-- Online Game Waiting Section -->
-        <section id="online-game-section" class="hidden text-center space-y-6">
-            <h2 id="room-info" class="text-3xl font-bold text-yellow-300"></h2>
-            <p class="text-lg">他のプレイヤーを待っています...</p>
-            <div class="bg-gray-700 p-4 rounded-xl shadow-inner max-w-md mx-auto">
-                <h3 class="text-xl font-bold">参加者</h3>
-                <ul id="players-list" class="mt-2 list-disc list-inside"></ul>
-            </div>
-            <button id="start-game-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg hidden">ゲーム開始</button>
-            <p id="online-message-box" class="mt-4 text-sm text-center"></p>
-        </section>
-
-        <!-- Game Section -->
-        <section id="game-section" class="hidden text-center space-y-6">
-            <div class="bg-gray-700 p-6 rounded-2xl shadow-inner">
-                <p id="timer-display" class="text-5xl font-extrabold text-white">0.00</p>
-                <p class="text-gray-400 mt-2">経過時間</p>
-            </div>
-            
-            <div class="bg-gray-700 p-6 rounded-2xl shadow-inner">
-                <p class="text-2xl text-gray-400">この数を素因数分解せよ！</p>
-                <p id="number-display" class="text-7xl md:text-8xl font-black text-yellow-300 my-4 animate-pulse">0</p>
-            </div>
-            
-            <input id="input-field" type="text" placeholder="例: 2^3 * 5 * 7" class="w-full px-4 py-3 rounded-xl bg-gray-700 text-white placeholder-gray-400 text-lg text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
-            <p id="message-box" class="text-sm text-center font-bold"></p>
-        </section>
-
-        <!-- Result Section -->
-        <section id="result-section" class="hidden text-center space-y-6">
-            <h2 id="result-message" class="text-4xl font-extrabold"></h2>
-            <div id="result-details" class="bg-gray-700 p-6 rounded-2xl shadow-inner space-y-2 text-left"></div>
-            <button id="back-to-menu" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-lg">メニューに戻る</button>
-        </section>
-
-        <!-- Message Modal -->
-        <div id="message-modal" class="modal">
-            <div class="bg-gray-800 p-6 rounded-2xl shadow-2xl text-center space-y-4">
-                <p id="message-text" class="text-xl font-bold"></p>
-                <button id="close-modal" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-xl transition duration-300 shadow-lg">閉じる</button>
+                <button id="back-to-menu-btn" class="btn w-full bg-gray-400 hover:bg-gray-500">戻る</button>
             </div>
         </div>
 
+        <!-- Room Lobby Screen -->
+        <div id="room-lobby-screen" class="screen hidden">
+            <h2 class="text-2xl font-bold mb-4">ルームロビー</h2>
+            <p id="lobby-room-id" class="text-lg mb-4 font-bold"></p>
+            <ul id="lobby-player-list" class="bg-gray-50 rounded-lg p-4 mb-4"></ul>
+            <button id="start-game-btn" class="btn w-full mb-2 hidden">ゲーム開始</button>
+            <button id="leave-room-btn" class="btn w-full bg-red-500 hover:bg-red-600">ルームを退出</button>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen hidden">
+            <!-- Game Area -->
+            <div id="game-area">
+                <h2 class="text-xl font-bold mb-4">問題を素早く解こう！</h2>
+                <div class="flex justify-center items-center mb-4">
+                    <span class="text-4xl font-extrabold text-indigo-600" id="question-number"></span>
+                </div>
+                <input type="text" id="answer-input" placeholder="例: 2*3*5" class="input-box mb-4 text-center">
+                <button id="submit-answer-btn" class="btn w-full">回答</button>
+                <div class="timer-bar mt-4">
+                    <div id="timer-fill" class="timer-fill"></div>
+                </div>
+                <p id="result-message" class="mt-4 text-lg font-semibold"></p>
+            </div>
+            <!-- Leaderboard Area -->
+            <div id="leaderboard-area" class="hidden">
+                 <h2 class="text-2xl font-bold mb-4">最終結果</h2>
+                 <p id="final-message" class="text-lg font-semibold mb-4"></p>
+                 <ul id="leaderboard-list" class="space-y-2 text-left"></ul>
+                 <button id="back-to-menu-btn" class="btn w-full mt-4 bg-gray-400 hover:bg-gray-500">メニューに戻る</button>
+            </div>
+        </div>
     </div>
 </body>
 </html>
